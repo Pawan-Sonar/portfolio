@@ -1,0 +1,44 @@
+# Render Blueprint — deploys backend + frontend in one click.
+# Docs: https://render.com/docs/blueprint-spec
+
+services:
+  # ---------- FastAPI Backend ----------
+  - type: web
+    name: pawan-portfolio-backend
+    runtime: python
+    rootDir: backend
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn server:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/health
+    envVars:
+      - key: MONGO_URL
+        sync: false              # set in Render dashboard (MongoDB Atlas URI)
+      - key: DB_NAME
+        value: portfolio_db
+      - key: CORS_ORIGINS
+        sync: false              # e.g. https://pawan-portfolio-frontend.onrender.com
+      - key: RESEND_API_KEY
+        sync: false              # optional
+      - key: SENDER_EMAIL
+        value: onboarding@resend.dev
+      - key: OWNER_EMAIL
+        value: pawansonar965@gmail.com
+      - key: ADMIN_TOKEN
+        generateValue: true      # auto-generated random secret
+
+  # ---------- React Frontend (static site) ----------
+  - type: web
+    name: pawan-portfolio-frontend
+    runtime: static
+    rootDir: frontend
+    plan: free
+    buildCommand: yarn install --frozen-lockfile && yarn build
+    staticPublishPath: ./build
+    envVars:
+      - key: REACT_APP_BACKEND_URL
+        sync: false              # set to your backend URL after first deploy
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
