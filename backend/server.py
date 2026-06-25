@@ -1,5 +1,3 @@
-Here's the complete, improved backend/server.py — copy-paste this whole file over the one in your GitHub repo:
-
 from fastapi import FastAPI, APIRouter, HTTPException, Header
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
