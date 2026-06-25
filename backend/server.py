@@ -1,3 +1,5 @@
+Here's the complete, improved backend/server.py — copy-paste this whole file over the one in your GitHub repo:
+
 from fastapi import FastAPI, APIRouter, HTTPException, Header
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
@@ -32,6 +34,7 @@ RESEND_API_KEY = os.environ.get('RESEND_API_KEY', '').strip()
 SENDER_EMAIL = os.environ.get('SENDER_EMAIL', 'onboarding@resend.dev')
 OWNER_EMAIL = os.environ.get('OWNER_EMAIL', 'pawan.sonar@example.com')
 ADMIN_TOKEN = os.environ.get('ADMIN_TOKEN', '').strip()
+GITHUB_TOKEN = os.environ.get('GITHUB_TOKEN', '').strip()
 
 resend = None
 if RESEND_API_KEY:
@@ -127,6 +130,7 @@ async def health():
     return {
         "status": "healthy",
         "email_configured": bool(RESEND_API_KEY),
+        "github_authenticated": bool(GITHUB_TOKEN),
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
@@ -164,15 +168,29 @@ async def list_contact_messages(limit: int = 50, x_admin_token: str = Header(def
 async def github_stats(username: str = "Pawan-Sonar"):
     """Fetch live GitHub profile + top repos. Cached in MongoDB for 1 hour."""
     cache_key = f"github:{username}"
-    cached = await db.cache.find_one({"_id": cache_key})
     now = datetime.now(timezone.utc)
-    if cached:
-        ts = datetime.fromisoformat(cached['updated_at'])
-        if (now - ts).total_seconds() < 3600:
-            return GitHubStats(**cached['data'])
+
+    cached = None
+    try:
+        cached = await db.cache.find_one({"_id": cache_key})
+        if cached:
+            ts = datetime.fromisoformat(cached['updated_at'])
+            if (now - ts).total_seconds() < 3600:
+                return GitHubStats(**cached['data'])
+    except Exception as e:
+        logger.warning(f"Cache lookup skipped: {e}")
+
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "User-Agent": "pawan-portfolio",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    token = os.environ.get('GITHUB_TOKEN', '').strip()
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
 
     try:
-        async with httpx.AsyncClient(timeout=10.0) as http:
+        async with httpx.AsyncClient(timeout=10.0, headers=headers) as http:
             user_r = await http.get(f"https://api.github.com/users/{username}")
             user_r.raise_for_status()
             user = user_r.json()
@@ -214,11 +232,14 @@ async def github_stats(username: str = "Pawan-Sonar"):
         top_repos=top_repos,
     )
 
-    await db.cache.update_one(
-        {"_id": cache_key},
-        {"$set": {"data": data.model_dump(), "updated_at": now.isoformat()}},
-        upsert=True,
-    )
+    try:
+        await db.cache.update_one(
+            {"_id": cache_key},
+            {"$set": {"data": data.model_dump(), "updated_at": now.isoformat()}},
+            upsert=True,
+        )
+    except Exception as e:
+        logger.warning(f"Cache write skipped: {e}")
     return data
 
 
@@ -232,8 +253,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-logger = logging.getLogger(__name__)
 
 
 @app.on_event("shutdown")
