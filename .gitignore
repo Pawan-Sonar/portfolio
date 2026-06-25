@@ -71,3 +71,8 @@ memory/
 test_reports/
 design_guidelines.json
 test_result.md
+.env.*
+*.env
+credentials.json
+*.key
+.credentials
